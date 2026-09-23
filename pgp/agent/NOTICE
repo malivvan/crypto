@@ -1,0 +1,11 @@
+# NOTICE
+
+The `common`, `client`, `server` and `pinentry` sub-packages of this directory
+implement the Assuan IPC protocol (https://www.gnupg.org/documentation/manuals/assuan/).
+They were originally derived from the MIT-licensed `github.com/foxcpp/go-assuan`
+project by foxcpp and contributors, imported into this module and moved under the
+`github.com/malivvan/crypto` first-party import path.
+
+The Assuan protocol itself and the gpg-agent command set it exposes are Copyright
+the GnuPG Project (https://gnupg.org), licensed under GPLv3+ / LGPLv3+ as applicable.
+The wire format is implemented here from the public protocol documentation.

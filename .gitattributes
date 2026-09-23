@@ -1,0 +1,6 @@
+# Treat every file in this repository as binary so that no git "magic"
+# rewrites line endings. Contributors on Windows should use a recent git
+# and an editor that keeps LF line endings; `gofmt -l .` (run by CI and by
+# `make fmt`) rejects files with CRLF endings.
+
+* -text

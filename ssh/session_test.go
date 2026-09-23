@@ -1,0 +1,649 @@
+package ssh
+
+import (
+	"bytes"
+	"fmt"
+	"io"
+	"net"
+	"reflect"
+	"sort"
+	"strings"
+	"testing"
+
+	gossh "github.com/malivvan/crypto/ssh/internal"
+)
+
+func (srv *Server) serveOnce(l net.Listener) error {
+	srv.ensureHandlers()
+	if err := srv.ensureHostSigner(); err != nil {
+		return err
+	}
+	conn, e := l.Accept()
+	if e != nil {
+		return e
+	}
+	srv.ChannelHandlers = map[string]ChannelHandler{
+		"session":      DefaultSessionHandler,
+		"direct-tcpip": DirectTCPIPHandler,
+	}
+	srv.HandleConn(conn)
+	return nil
+}
+
+func newLocalListener() net.Listener {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		if l, err = net.Listen("tcp6", "[::1]:0"); err != nil {
+			panic(fmt.Sprintf("failed to listen on a port: %v", err))
+		}
+	}
+	return l
+}
+
+func newClientSession(t *testing.T, addr string, config *gossh.ClientConfig) (*gossh.Session, *gossh.Client, func()) {
+	if config == nil {
+		config = &gossh.ClientConfig{
+			User: "testuser",
+			Auth: []gossh.AuthMethod{
+				gossh.Password("testpass"),
+			},
+		}
+	}
+	if config.HostKeyCallback == nil {
+		config.HostKeyCallback = gossh.InsecureIgnoreHostKey()
+	}
+	client, err := gossh.Dial("tcp", addr, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := client.NewSession()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return session, client, func() {
+		session.Close()
+		client.Close()
+	}
+}
+
+func newTestSession(t *testing.T, srv *Server, cfg *gossh.ClientConfig) (*gossh.Session, *gossh.Client, func()) {
+	l := newLocalListener()
+	go srv.serveOnce(l)
+	return newClientSession(t, l.Addr().String(), cfg)
+}
+
+func TestStdout(t *testing.T) {
+	t.Parallel()
+	testBytes := []byte("Hello world\n")
+	session, _, cleanup := newTestSession(t, &Server{
+		Handler: func(s Session) {
+			s.Write(testBytes)
+		},
+	}, nil)
+	defer cleanup()
+	var stdout bytes.Buffer
+	session.Stdout = &stdout
+	if err := session.Run(""); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(stdout.Bytes(), testBytes) {
+		t.Fatalf("stdout = %#v; want %#v", stdout.Bytes(), testBytes)
+	}
+}
+
+func TestStderr(t *testing.T) {
+	t.Parallel()
+	testBytes := []byte("Hello world\n")
+	session, _, cleanup := newTestSession(t, &Server{
+		Handler: func(s Session) {
+			s.Stderr().Write(testBytes)
+		},
+	}, nil)
+	defer cleanup()
+	var stderr bytes.Buffer
+	session.Stderr = &stderr
+	if err := session.Run(""); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(stderr.Bytes(), testBytes) {
+		t.Fatalf("stderr = %#v; want %#v", stderr.Bytes(), testBytes)
+	}
+}
+
+func TestPtyStderr(t *testing.T) {
+	t.Parallel()
+	testBytes := []byte("Hello world\n\r\n")
+	expectBytes := []byte("Hello world\r\n\r\n")
+	session, _, cleanup := newTestSession(t, &Server{
+		Handler: func(s Session) {
+			s.Stderr().Write(testBytes)
+		},
+	}, nil)
+	err := session.RequestPty("xterm", 80, 40, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	var stderr bytes.Buffer
+	session.Stderr = &stderr
+	if err := session.Run(""); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(stderr.Bytes(), expectBytes) {
+		t.Fatalf("stderr = %#v; want %#v", stderr.Bytes(), expectBytes)
+	}
+}
+
+func TestStdin(t *testing.T) {
+	t.Parallel()
+	testBytes := []byte("Hello world\n")
+	session, _, cleanup := newTestSession(t, &Server{
+		Handler: func(s Session) {
+			io.Copy(s, s) // stdin back into stdout
+		},
+	}, nil)
+	defer cleanup()
+	var stdout bytes.Buffer
+	session.Stdout = &stdout
+	session.Stdin = bytes.NewBuffer(testBytes)
+	if err := session.Run(""); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(stdout.Bytes(), testBytes) {
+		t.Fatalf("stdout = %#v; want %#v given stdin = %#v", stdout.Bytes(), testBytes, testBytes)
+	}
+}
+
+func TestUser(t *testing.T) {
+	t.Parallel()
+	testUser := []byte("progrium")
+	session, _, cleanup := newTestSession(t, &Server{
+		Handler: func(s Session) {
+			io.WriteString(s, s.User())
+		},
+	}, &gossh.ClientConfig{
+		User: string(testUser),
+	})
+	defer cleanup()
+	var stdout bytes.Buffer
+	session.Stdout = &stdout
+	if err := session.Run(""); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(stdout.Bytes(), testUser) {
+		t.Fatalf("stdout = %#v; want %#v given user = %#v", stdout.Bytes(), testUser, string(testUser))
+	}
+}
+
+func TestDefaultExitStatusZero(t *testing.T) {
+	t.Parallel()
+	session, _, cleanup := newTestSession(t, &Server{
+		Handler: func(s Session) {
+			// noop
+		},
+	}, nil)
+	defer cleanup()
+	err := session.Run("")
+	if err != nil {
+		t.Fatalf("expected nil but got %v", err)
+	}
+}
+
+func TestExplicitExitStatusZero(t *testing.T) {
+	t.Parallel()
+	session, _, cleanup := newTestSession(t, &Server{
+		Handler: func(s Session) {
+			s.Exit(0)
+		},
+	}, nil)
+	defer cleanup()
+	err := session.Run("")
+	if err != nil {
+		t.Fatalf("expected nil but got %v", err)
+	}
+}
+
+func TestExitStatusNonZero(t *testing.T) {
+	t.Parallel()
+	session, _, cleanup := newTestSession(t, &Server{
+		Handler: func(s Session) {
+			s.Exit(1)
+		},
+	}, nil)
+	defer cleanup()
+	err := session.Run("")
+	e, ok := err.(*gossh.ExitError)
+	if !ok {
+		t.Fatalf("expected ExitError but got %T", err)
+	}
+	if e.ExitStatus() != 1 {
+		t.Fatalf("exit-status = %#v; want %#v", e.ExitStatus(), 1)
+	}
+}
+
+func TestPty(t *testing.T) {
+	t.Parallel()
+	term := "xterm"
+	winWidth := 40
+	winHeight := 80
+	done := make(chan bool)
+	session, _, cleanup := newTestSession(t, &Server{
+		Handler: func(s Session) {
+			defer func() { close(done) }()
+			ptyReq, _, isPty := s.Pty()
+			if !isPty {
+				t.Fatalf("expected ptyallocate but none requested")
+			}
+			if ptyReq.Term != term {
+				t.Fatalf("expected term %#v but got %#v", term, ptyReq.Term)
+			}
+			if ptyReq.Window.Width != winWidth {
+				t.Fatalf("expected window width %#v but got %#v", winWidth, ptyReq.Window.Width)
+			}
+			if ptyReq.Window.Height != winHeight {
+				t.Fatalf("expected window height %#v but got %#v", winHeight, ptyReq.Window.Height)
+			}
+		},
+	}, nil)
+	defer cleanup()
+	if err := session.RequestPty(term, winHeight, winWidth, gossh.TerminalModes{}); err != nil {
+		t.Fatalf("expected nil but got %v", err)
+	}
+	if err := session.Shell(); err != nil {
+		t.Fatalf("expected nil but got %v", err)
+	}
+	<-done
+}
+
+func TestPtyWriter(t *testing.T) {
+	t.Parallel()
+	term := "xterm"
+	winWidth := 40
+	winHeight := 80
+	session, _, cleanup := newTestSession(t, &Server{
+		Handler: func(s Session) {
+			_, _ = fmt.Fprintln(s, "foo\nbar")
+			_, _ = fmt.Fprintln(s.Stderr(), "many\nerrors")
+			_ = s.Exit(0)
+		},
+	}, nil)
+	defer cleanup()
+	if err := session.RequestPty(term, winHeight, winWidth, gossh.TerminalModes{}); err != nil {
+		t.Fatalf("expected nil but got %v", err)
+	}
+	bts, err := session.CombinedOutput("")
+	if err != nil {
+		t.Fatalf("expected nil but got %v", err)
+	}
+
+	// CombinedOutput copies stdout and stderr in separate goroutines, so the
+	// order between the two streams is not guaranteed. Assert on the set of
+	// lines and on the \n -> \r\n conversion instead of the exact sequence.
+	lines := strings.Split(string(bts), "\r\n")
+	if lines[len(lines)-1] != "" {
+		t.Fatalf("expected output to end with %q, got %q", "\r\n", string(bts))
+	}
+	lines = lines[:len(lines)-1]
+	sort.Strings(lines)
+	expected := []string{"bar", "errors", "foo", "many"}
+	if !reflect.DeepEqual(expected, lines) {
+		t.Fatalf("expected output lines to be %q, got %q", expected, lines)
+	}
+}
+
+func TestPtyResize(t *testing.T) {
+	t.Parallel()
+	winch0 := Window{40, 80, 320, 640}
+	winch1 := Window{80, 160, 640, 1280}
+	winch2 := Window{20, 40, 160, 320}
+	winches := make(chan Window)
+	done := make(chan bool)
+	session, _, cleanup := newTestSession(t, &Server{
+		Handler: func(s Session) {
+			defer func() { close(done) }()
+			ptyReq, winCh, isPty := s.Pty()
+			if !isPty {
+				t.Fatalf("expected ptyallocate but none requested")
+			}
+			if ptyReq.Window != winch0 {
+				t.Fatalf("expected window %#v but got %#v", winch0, ptyReq.Window)
+			}
+			for win := range winCh {
+				winches <- win
+			}
+		},
+	}, nil)
+	defer cleanup()
+	// winch0
+	if err := session.RequestPty("xterm", winch0.Height, winch0.Width, gossh.TerminalModes{}); err != nil {
+		t.Fatalf("expected nil but got %v", err)
+	}
+	if err := session.Shell(); err != nil {
+		t.Fatalf("expected nil but got %v", err)
+	}
+	gotWinch := <-winches
+	if gotWinch != winch0 {
+		t.Fatalf("expected window %#v but got %#v", winch0, gotWinch)
+	}
+	// winch1
+	if err := session.WindowChange(winch1.Height, winch1.Width); err != nil {
+		t.Fatalf("expected nil but got %v", err)
+	}
+	gotWinch = <-winches
+	if gotWinch != winch1 {
+		t.Fatalf("expected window %#v but got %#v", winch1, gotWinch)
+	}
+	// winch2
+	if err := session.WindowChange(winch2.Height, winch2.Width); err != nil {
+		t.Fatalf("expected nil but got %v", err)
+	}
+	gotWinch = <-winches
+	if gotWinch != winch2 {
+		t.Fatalf("expected window %#v but got %#v", winch2, gotWinch)
+	}
+	session.Close()
+	<-done
+}
+
+func TestSignals(t *testing.T) {
+	t.Parallel()
+
+	// errChan lets us get errors back from the session
+	errChan := make(chan error, 5)
+
+	// doneChan lets us specify that we should exit.
+	doneChan := make(chan interface{})
+
+	session, _, cleanup := newTestSession(t, &Server{
+		Handler: func(s Session) {
+			// We need to use a buffered channel here, otherwise it's possible for the
+			// second call to Signal to get discarded.
+			signals := make(chan Signal, 2)
+			s.Signals(signals)
+
+			select {
+			case sig := <-signals:
+				if sig != SIGINT {
+					errChan <- fmt.Errorf("expected signal %v but got %v", SIGINT, sig)
+					return
+				}
+			case <-doneChan:
+				errChan <- fmt.Errorf("Unexpected done")
+				return
+			}
+
+			select {
+			case sig := <-signals:
+				if sig != SIGKILL {
+					errChan <- fmt.Errorf("expected signal %v but got %v", SIGKILL, sig)
+					return
+				}
+			case <-doneChan:
+				errChan <- fmt.Errorf("Unexpected done")
+				return
+			}
+		},
+	}, nil)
+	defer cleanup()
+
+	go func() {
+		session.Signal(gossh.SIGINT)
+		session.Signal(gossh.SIGKILL)
+	}()
+
+	go func() {
+		errChan <- session.Run("")
+	}()
+
+	err := <-errChan
+	close(doneChan)
+
+	if err != nil {
+		t.Fatalf("expected nil but got %v", err)
+	}
+}
+
+func TestBreakWithChanRegistered(t *testing.T) {
+	t.Parallel()
+
+	// errChan lets us get errors back from the session
+	errChan := make(chan error, 5)
+
+	// doneChan lets us specify that we should exit.
+	doneChan := make(chan interface{})
+
+	breakChan := make(chan bool)
+
+	readyToReceiveBreak := make(chan bool)
+
+	session, _, cleanup := newTestSession(t, &Server{
+		Handler: func(s Session) {
+			s.Break(breakChan) // register a break channel with the session
+			readyToReceiveBreak <- true
+
+			select {
+			case <-breakChan:
+				io.WriteString(s, "break")
+			case <-doneChan:
+				errChan <- fmt.Errorf("Unexpected done")
+				return
+			}
+		},
+	}, nil)
+	defer cleanup()
+	var stdout bytes.Buffer
+	session.Stdout = &stdout
+	go func() {
+		errChan <- session.Run("")
+	}()
+
+	<-readyToReceiveBreak
+	ok, err := session.SendRequest("break", true, nil)
+	if err != nil {
+		t.Fatalf("expected nil but got %v", err)
+	}
+	if ok != true {
+		t.Fatalf("expected true but got %v", ok)
+	}
+
+	err = <-errChan
+	close(doneChan)
+
+	if err != nil {
+		t.Fatalf("expected nil but got %v", err)
+	}
+	if !bytes.Equal(stdout.Bytes(), []byte("break")) {
+		t.Fatalf("stdout = %#v, expected 'break'", stdout.Bytes())
+	}
+}
+
+func TestBreakWithoutChanRegistered(t *testing.T) {
+	t.Parallel()
+
+	// errChan lets us get errors back from the session
+	errChan := make(chan error, 5)
+
+	// doneChan lets us specify that we should exit.
+	doneChan := make(chan interface{})
+
+	waitUntilAfterBreakSent := make(chan bool)
+
+	session, _, cleanup := newTestSession(t, &Server{
+		Handler: func(s Session) {
+			<-waitUntilAfterBreakSent
+		},
+	}, nil)
+	defer cleanup()
+	var stdout bytes.Buffer
+	session.Stdout = &stdout
+	go func() {
+		errChan <- session.Run("")
+	}()
+
+	ok, err := session.SendRequest("break", true, nil)
+	if err != nil {
+		t.Fatalf("expected nil but got %v", err)
+	}
+	if ok != false {
+		t.Fatalf("expected false but got %v", ok)
+	}
+	waitUntilAfterBreakSent <- true
+
+	err = <-errChan
+	close(doneChan)
+	if err != nil {
+		t.Fatalf("expected nil but got %v", err)
+	}
+}
+
+func TestShellSplit(t *testing.T) {
+	printToken := func(s []string) {
+		for _, token := range s {
+			fmt.Println(token)
+		}
+	}
+	var data = []struct {
+		in  string
+		out []string
+		err error
+	}{
+		{`This string has an embedded apostrophe, doesn't it?`,
+			[]string{
+				"This",
+				"string",
+				"has",
+				"an",
+				"embedded",
+				"apostrophe",
+				",",
+				"doesnt it?",
+			},
+			ErrNoClosing,
+		},
+		{"This string has embedded \"double quotes\" and 'single quotes' in it,\nand even \"a 'nested example'\".\n",
+			[]string{
+				"This",
+				"string",
+				"has",
+				"embedded",
+				`double quotes`,
+				"and",
+				`single quotes`,
+				"in",
+				"it",
+				",",
+				"and",
+				"even",
+				`a 'nested example'`,
+				".",
+			},
+			nil,
+		},
+		{`Hello world!, こんにちは　世界！`,
+			[]string{
+				"Hello",
+				"world",
+				"!",
+				",",
+				"こんにちは",
+				"世界",
+				"！",
+			},
+			nil,
+		},
+		{`Do"Not"Separate`,
+			[]string{`DoNotSeparate`},
+			nil,
+		},
+		{`"Do"Separate`,
+			[]string{"DoSeparate"},
+			nil,
+		},
+		{`Escaped \e Character not in quotes`,
+			[]string{
+				"Escaped",
+				"e",
+				"Character",
+				"not",
+				"in",
+				"quotes",
+			},
+			nil,
+		},
+		{`Escaped "\e" Character in double quotes`,
+			[]string{
+				"Escaped",
+				`\e`,
+				"Character",
+				"in",
+				"double",
+				"quotes",
+			},
+			nil,
+		},
+		{`Escaped '\e' Character in single quotes`,
+			[]string{
+				"Escaped",
+				`\e`,
+				"Character",
+				"in",
+				"single",
+				"quotes",
+			},
+			nil,
+		},
+		{`Escaped '\'' \"\'\" single quote`,
+			[]string{
+				"Escaped",
+				`\ \"\"`,
+				"single",
+				"quote",
+			},
+			nil,
+		},
+		{`Escaped "\"" \'\"\' double quote`,
+			[]string{
+				"Escaped",
+				`"`,
+				`'"'`,
+				"double",
+				"quote",
+			},
+			nil,
+		},
+		{`"'Strip extra layer of quotes'"`,
+			[]string{`'Strip extra layer of quotes'`},
+			nil,
+		},
+	}
+
+	for _, d := range data {
+		t.Logf("Spliting: `%s'", d.in)
+
+		result, err := shellSplit(d.in, false)
+
+		// check closing and escaped error
+		if err != d.err {
+			printToken(result)
+			t.Fatalf("Error expected: `%v', but result catched: `%v'",
+				d.err, err)
+		}
+
+		// check splited number
+		if len(result) != len(d.out) {
+			printToken(result)
+			t.Fatalf("Split expeced: `%d', but result founds: `%d'",
+				len(d.out), len(result))
+		}
+
+		// check words
+		for j, out := range d.out {
+			if result[j] != out {
+				printToken(result)
+				t.Fatalf("Word expeced: `%s', but result founds: `%s' in %d",
+					out, result[j], j)
+			}
+		}
+		t.Log("ok")
+	}
+}
