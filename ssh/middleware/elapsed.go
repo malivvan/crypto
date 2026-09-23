@@ -14,7 +14,7 @@ import (
 // this must be called as the last middleware in the chain.
 func Elapsed() ssh.Middleware {
 	return func(sh ssh.Handler) ssh.Handler {
-		return func(s ssh.Session) {
+		return func(s ssh.ServerSession) {
 			now := time.Now()
 			sh(s)
 			log.Printf("elapsed: user=%s remote-addr=%s duration=%s",

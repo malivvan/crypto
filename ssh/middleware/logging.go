@@ -14,7 +14,7 @@ import (
 // address and connection duration.
 func Logging() ssh.Middleware {
 	return func(next ssh.Handler) ssh.Handler {
-		return func(sess ssh.Session) {
+		return func(sess ssh.ServerSession) {
 			ct := time.Now()
 			hpk := sess.PublicKey() != nil
 			pty, _, _ := sess.Pty()

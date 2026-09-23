@@ -16,19 +16,19 @@ import (
 // letting a panic escape would terminate the whole server process rather
 // than just the offending session.
 func Recover(mw ...ssh.Middleware) ssh.Middleware {
-	h := func(ssh.Session) {}
+	h := func(ssh.ServerSession) {}
 	for _, m := range mw {
 		h = m(h)
 	}
 	return func(sh ssh.Handler) ssh.Handler {
-		return func(s ssh.Session) {
+		return func(s ssh.ServerSession) {
 			guard(s, func() { h(s) })
 			guard(s, func() { sh(s) })
 		}
 	}
 }
 
-func guard(s ssh.Session, fn func()) {
+func guard(s ssh.ServerSession, fn func()) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("recovered panic: %v\n%s", r, debug.Stack())

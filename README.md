@@ -17,7 +17,7 @@ under `./pgp`.
 |------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------|
 | [`wallet/`](./wallet/)                                                                   | high-level chainable OpenPGP wallet API (former root `openpgp` package)                                            |
 | [`pgp/`](./pgp/)                                                                         | stripped, hardened OpenPGP library, Ed25519 sign / X25519 encrypt only                                             |
-| [`ssh/`](./ssh/)                                                                         | hardened SSH server, Ed25519 SSH agent, PTY handling and middleware, plus a public client re-export (`ssh/client`) |
+| [`ssh/`](./ssh/)                                                                         | hardened SSH server and client, Ed25519 SSH agent, PTY handling and middleware                                     |
 | [`minisign/`](./minisign/)                                                               | the minisign signature format on the module's Ed25519 key                                                          |
 | [`ed25519/`](./ed25519/), [`x25519/`](./x25519/)                                         | the two key implementations                                                                                        |
 | `argon2/`, `blake2b/`, `chacha20/`, `hkdf/`, `pbkdf2/`, `poly1305/`, `salsa20/`, `sha3/` | drop-in `golang.org/x/crypto` replacements                                                                         |

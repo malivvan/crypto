@@ -11,7 +11,7 @@ import (
 // will be allowed (only shells, if reached before this middleware rejects).
 func AccessControl(cmds ...string) ssh.Middleware {
 	return func(sh ssh.Handler) ssh.Handler {
-		return func(s ssh.Session) {
+		return func(s ssh.ServerSession) {
 			if len(s.Command()) == 0 {
 				sh(s)
 				return

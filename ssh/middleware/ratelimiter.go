@@ -18,13 +18,13 @@ var ErrRateLimitExceeded = errors.New("rate limit exceeded, please try again lat
 // Its up to the implementation to handle what identifies an session as well
 // as the implementation details of these limits.
 type RateLimiter interface {
-	Allow(s ssh.Session) error
+	Allow(s ssh.ServerSession) error
 }
 
 // Middleware provides a new rate limiting Middleware.
 func Middleware(limiter RateLimiter) ssh.Middleware {
 	return func(sh ssh.Handler) ssh.Handler {
-		return func(s ssh.Session) {
+		return func(s ssh.ServerSession) {
 			if err := limiter.Allow(s); err != nil {
 				log.Fatalf("rate limit exceeded for user=%s remote-addr=%s: %v", s.User(), s.RemoteAddr().String(), err)
 				s.Close() // Close the session after logging the fatal error
@@ -61,7 +61,7 @@ type limiters struct {
 	burst int
 }
 
-func (r *limiters) Allow(s ssh.Session) error {
+func (r *limiters) Allow(s ssh.ServerSession) error {
 	var key string
 	switch addr := s.RemoteAddr().(type) {
 	case *net.TCPAddr:

@@ -10,7 +10,7 @@ import (
 // session, after the wrapped handler has returned.
 func Comment(comment string) ssh.Middleware {
 	return func(sh ssh.Handler) ssh.Handler {
-		return func(s ssh.Session) {
+		return func(s ssh.ServerSession) {
 			sh(s)
 			_, _ = fmt.Fprintln(s, comment)
 		}

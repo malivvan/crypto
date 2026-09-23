@@ -5,19 +5,29 @@ Guidance for AI agents (and humans) working in this repository.
 ## Project overview
 
 This directory is the **`github.com/malivvan/crypto/ssh`** package of the
-`github.com/malivvan/crypto` module — a minimal, hardened SSH server library
-for Go.
+`github.com/malivvan/crypto` module — a minimal, hardened SSH server *and
+client* library for Go.
 
-- The root package `ssh` (`*.go` at this directory's root) is a high-level
-  server API: `Server`, `Session`, `Context`, functional options
-  (`PasswordAuth`, `PublicKeyAuth`, `HostKeyFile`, ...), PTY handling, port
-  forwarding, agent forwarding and subsystems.
+- The root package `ssh` (`*.go` at this directory's root) is the public API
+  for both roles. Server side: `Server`, `ServerSession`, `Context`,
+  functional options (`PasswordAuth`, `PublicKeyAuth`, `HostKeyFile`, ...),
+  PTY handling, port forwarding, agent forwarding and subsystems. Client side:
+  `Dial`, `DialContext`, `NewClientConn`/`NewClient`, `Client`,
+  `ClientConfig`/`Config`, `ClientSession`, the `AuthMethod` constructors
+  (`Password`, `PublicKeys`, `KeyboardInteractive`, ...) and the host key
+  callbacks (`FixedHostKey`, `CertChecker.CheckHostKey`,
+  `InsecureIgnoreHostKey`).
+- The root package's client, key, certificate and wire-level types are
+  **aliases** of the `internal` ones (`type Client = gossh.Client`, ...), so
+  they are one and the same type and values round-trip without conversion.
+  Keep new public identifiers on that pattern: put the implementation and its
+  `ssh:` error strings in `internal/`, and the alias/wrapper plus the doc
+  comment in the root package.
 - `internal/` contains a stripped SSH protocol implementation (package
   `internal`): transport, handshake, key exchange, auth, channels, sessions
-  and a client used by the test suite.
-- `client/` re-exports that internal client as a public package for consumers
-  outside this subtree, and `agent/` implements the OpenSSH agent protocol for
-  Ed25519 keys.
+  and the client the root package re-exports. It is not importable from
+  outside this subtree, which is why the aliases above exist.
+- `agent/` implements the OpenSSH agent protocol for Ed25519 keys.
 - PTY support — Unix terminals, terminal modes and window sizes, and Windows
   ConPTY — comes from the external `github.com/malivvan/pty` module; nothing
   platform specific for it is duplicated here.
@@ -97,14 +107,22 @@ make tidy      # go mod tidy
   prefix and BSD-style copyright headers.
 - Any example code must compile against the public root package only
   (no `github.com/malivvan/crypto/ssh/internal` imports — that is an internal
-  package; use `ssh/client`, which re-exports the supported client API).
+  package; the root package re-exports the supported client API).
+- New client-facing API belongs in the root package (`client.go`,
+  `client_auth.go`, `wrap.go`, `certs.go`, `wire.go`, `errors.go`) and must be
+  documented in `README.md` (see "Using `ssh` as a client") and covered by a
+  test — `client_test.go` dials a real loopback server without touching
+  `internal/`.
 - When adding tests, prefer table-driven tests and `t.Run` subtests, and do
   not call `t.Fatal` from non-test goroutines (report errors through
   channels); `go vet` enforces this.
 
 ## Known deliberate limitations
 
-- The `internal` client cannot connect to servers presenting plain (non-cert)
-  host keys, by design.
+- The client cannot connect to servers presenting plain (non-cert) host
+  keys, by design: only the two Ed25519 CERT algorithms are offered. Verify
+  host keys with `FixedHostKey` or `CertChecker.CheckHostKey`.
+- The server-side session interface is `ServerSession` (not `Session`), so
+  that `ClientSession` can name the client session type without a clash.
 - AEAD ciphers mean no separate MAC is negotiated on the wire; the two HMAC
   algorithms remain only as configurable/reportable entries.

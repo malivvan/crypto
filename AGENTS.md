@@ -72,8 +72,8 @@ delete them on the strength of a lint run.
   - `pgp/eddsa/`, `pgp/ecdh/` — key implementations.
   - `pgp/grip/` — OpenPGP key grips.
   - `pgp/agent/` — a gpg-agent-compatible Assuan service plus client/helpers.
-- `ssh/` — hardened SSH server (plus an Ed25519 agent and a public client
-  re-export), with sub-packages `ssh/agent`, `ssh/client`, `ssh/middleware`. Its
+- `ssh/` — hardened SSH server and client (plus an Ed25519 agent), with
+  sub-packages `ssh/agent`, `ssh/middleware`. Its
   own `ssh/AGENTS.md` covers the SSH-specific hardening rules. Platform PTY
   support comes from the external `github.com/malivvan/pty` module.
 - `minisign/` — the minisign signature format on the wallet's Ed25519 key

@@ -1,8 +1,11 @@
-// Package ssh is a minimal, hardened SSH server library.
+// Package ssh is a minimal, hardened SSH server and client library.
 //
 // It provides an easy way to build SSH servers without having to deal with
-// the SSH protocol details. The package only supports a deliberately small
-// set of modern algorithms:
+// the SSH protocol details, and to dial those servers from Go: see [Dial],
+// [DialContext] and [Client] for the client half, and [Server], [Serve] and
+// [ListenAndServe] for the server half.
+//
+// The package only supports a deliberately small set of modern algorithms:
 //
 //   - Key exchange: curve25519-sha256, mlkem768x25519-sha256
 //   - Host key certificates: ssh-ed25519-cert-v01@openssh.com,
@@ -11,34 +14,16 @@
 //   - MACs: hmac-sha2-256-etm@openssh.com, hmac-sha2-512-etm@openssh.com
 //
 // Everything else (RSA, DSA, ECDSA, SHA-1, CBC, RC4, legacy Diffie-Hellman,
-// ...) has been removed.
+// ...) has been removed. [SupportedAlgorithms] reports the negotiated set.
+//
+// The exported key, channel and client types are aliases of the package's own
+// protocol implementation, so values obtained from this package interoperate
+// with each other without conversion.
 package ssh
 
 import (
 	"crypto/subtle"
 	"net"
-
-	gossh "github.com/malivvan/crypto/ssh/internal"
-)
-
-// Signal represents a POSIX signal as specified in RFC 4254 Section 6.10.
-type Signal string
-
-// POSIX signals as listed in RFC 4254 Section 6.10.
-const (
-	SIGABRT Signal = "ABRT"
-	SIGALRM Signal = "ALRM"
-	SIGFPE  Signal = "FPE"
-	SIGHUP  Signal = "HUP"
-	SIGILL  Signal = "ILL"
-	SIGINT  Signal = "INT"
-	SIGKILL Signal = "KILL"
-	SIGPIPE Signal = "PIPE"
-	SIGQUIT Signal = "QUIT"
-	SIGSEGV Signal = "SEGV"
-	SIGTERM Signal = "TERM"
-	SIGUSR1 Signal = "USR1"
-	SIGUSR2 Signal = "USR2"
 )
 
 // DefaultHandler is the default Handler used by Serve.
@@ -48,7 +33,7 @@ var DefaultHandler Handler
 type Option func(*Server) error
 
 // Handler is a callback for handling established SSH sessions.
-type Handler func(Session)
+type Handler func(ServerSession)
 
 // BannerHandler is a callback for displaying the server banner.
 type BannerHandler func(ctx Context) string
@@ -60,16 +45,16 @@ type PublicKeyHandler func(ctx Context, key PublicKey) bool
 type PasswordHandler func(ctx Context, password string) bool
 
 // KeyboardInteractiveHandler is a callback for performing keyboard-interactive authentication.
-type KeyboardInteractiveHandler func(ctx Context, challenger gossh.KeyboardInteractiveChallenge) bool
+type KeyboardInteractiveHandler func(ctx Context, challenger KeyboardInteractiveChallenge) bool
 
 // PtyHandler is a callback for handling PTY allocation requests.
-type PtyHandler func(ctx Context, s Session, pty Pty) (func() error, error)
+type PtyHandler func(ctx Context, s ServerSession, pty Pty) (func() error, error)
 
 // PtyCallback is a hook for handling PTY allocation requests.
 type PtyCallback func(ctx Context, req Pty) bool
 
 // SessionRequestCallback is a callback for allowing or denying SSH sessions.
-type SessionRequestCallback func(sess Session, requestType string) bool
+type SessionRequestCallback func(sess ServerSession, requestType string) bool
 
 // ConnCallback is a hook for new connections before handling.
 // It allows wrapping for timeouts and limiting by returning
@@ -83,7 +68,7 @@ type LocalPortForwardingCallback func(ctx Context, destinationHost string, desti
 type ReversePortForwardingCallback func(ctx Context, bindHost string, bindPort uint32) bool
 
 // ServerConfigCallback is a hook for creating custom default server configs.
-type ServerConfigCallback func(ctx Context) *gossh.ServerConfig
+type ServerConfigCallback func(ctx Context) *ServerConfig
 
 // ConnectionFailedCallback is a hook for reporting failed connections
 // Please note: the net.Conn is likely to be closed at this point.
@@ -127,12 +112,9 @@ type Pty struct {
 	// requested by the client as part of the ptyallocate-req. These are outlined as
 	// part of https://datatracker.ietf.org/doc/html/rfc4254#section-8.
 	//
-	// The opcodes are defined as constants in github.com/malivvan/crypto/ssh/internal (VINTR,VQUIT,etc.).
+	// The opcodes are the VINTR, VQUIT, ... constants declared in this package.
 	// Boolean opcodes have values 0 or 1.
-	//
-	// Note: github.com/malivvan/crypto/ssh/internal currently (2022-03-12) doesn't have a
-	// definition for opcode 42 "iutf8" which was introduced in https://datatracker.ietf.org/doc/html/rfc8160.
-	Modes gossh.TerminalModes
+	Modes TerminalModes
 }
 
 // Serve accepts incoming SSH connections on the listener l, creating a new

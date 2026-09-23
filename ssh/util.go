@@ -4,36 +4,34 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/binary"
-
-	gossh "github.com/malivvan/crypto/ssh/internal"
 )
 
 // generateSigner generates a default host signer: an ed25519 host certificate
 // that is self-signed with the same ed25519 key. The certificate is only
 // generated for the host key algorithms this package supports
 // (ssh-ed25519-cert-v01@openssh.com and sk-ssh-ed25519-cert-v01@openssh.com).
-func generateSigner() (gossh.Signer, error) {
+func generateSigner() (Signer, error) {
 	_, key, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		return nil, err
 	}
-	signer, err := gossh.NewSignerFromKey(key)
+	signer, err := NewSignerFromKey(key)
 	if err != nil {
 		return nil, err
 	}
-	cert := &gossh.Certificate{
+	cert := &Certificate{
 		Key:         signer.PublicKey(),
 		Serial:      0,
-		CertType:    gossh.HostCert,
+		CertType:    HostCert,
 		KeyId:       "generated",
 		ValidAfter:  0,
-		ValidBefore: gossh.CertTimeInfinity,
+		ValidBefore: CertTimeInfinity,
 		// No ValidPrincipals means the certificate is valid for all hosts.
 	}
 	if err := cert.SignCert(rand.Reader, signer); err != nil {
 		return nil, err
 	}
-	return gossh.NewCertSigner(cert, signer)
+	return NewCertSigner(cert, signer)
 }
 
 func parsePtyRequest(payload []byte) (pty Pty, ok bool) {
@@ -73,7 +71,7 @@ func parsePtyRequest(payload []byte) (pty Pty, ok bool) {
 	return pty, ok
 }
 
-func parseTerminalModes(in []byte) (modes gossh.TerminalModes, ok bool) {
+func parseTerminalModes(in []byte) (modes TerminalModes, ok bool) {
 	// From https://datatracker.ietf.org/doc/html/rfc4254
 	// 8.  Encoding of Terminal Modes
 	//
@@ -101,7 +99,7 @@ func parseTerminalModes(in []byte) (modes gossh.TerminalModes, ok bool) {
 	const ttyOpEnd = 0
 	for len(rem) > 0 {
 		if modes == nil {
-			modes = make(gossh.TerminalModes)
+			modes = make(TerminalModes)
 		}
 		code := rem[0]
 		rem = rem[1:]

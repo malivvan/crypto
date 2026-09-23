@@ -2,8 +2,6 @@ package ssh
 
 import (
 	"os"
-
-	gossh "github.com/malivvan/crypto/ssh/internal"
 )
 
 // PasswordAuth returns a functional option that sets PasswordHandler on the server.
@@ -31,7 +29,7 @@ func HostKeyFile(filepath string) Option {
 			return err
 		}
 
-		signer, err := gossh.ParsePrivateKey(pemBytes)
+		signer, err := ParsePrivateKey(pemBytes)
 		if err != nil {
 			return err
 		}
@@ -55,7 +53,7 @@ func KeyboardInteractiveAuth(fn KeyboardInteractiveHandler) Option {
 // from a PEM file as bytes.
 func HostKeyPEM(bytes []byte) Option {
 	return func(srv *Server) error {
-		signer, err := gossh.ParsePrivateKey(bytes)
+		signer, err := ParsePrivateKey(bytes)
 		if err != nil {
 			return err
 		}
@@ -87,7 +85,7 @@ func WrapConn(fn ConnCallback) Option {
 
 var contextKeyEmulatePty = &contextKey{"emulate-ptyallocate"}
 
-func emulatePtyHandler(ctx Context, _ Session, _ Pty) (func() error, error) {
+func emulatePtyHandler(ctx Context, _ ServerSession, _ Pty) (func() error, error) {
 	ctx.SetValue(contextKeyEmulatePty, true)
 	return func() error { return nil }, nil
 }
@@ -106,7 +104,7 @@ func EmulatePty() Option {
 // specific PTY implementation defined in pty_*.go.
 func AllocatePty() Option {
 	return func(s *Server) error {
-		s.PtyHandler = func(_ Context, s Session, pty Pty) (func() error, error) {
+		s.PtyHandler = func(_ Context, s ServerSession, pty Pty) (func() error, error) {
 			return s.(*session).ptyAllocate(pty.Term, pty.Window, pty.Modes)
 		}
 		return nil

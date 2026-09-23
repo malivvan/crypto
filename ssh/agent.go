@@ -7,8 +7,6 @@ import (
 	"os"
 	"path"
 	"sync"
-
-	gossh "github.com/malivvan/crypto/ssh/internal"
 )
 
 const (
@@ -30,7 +28,7 @@ func SetAgentRequested(ctx Context) {
 }
 
 // AgentRequested returns true if the client requested agent forwarding.
-func AgentRequested(sess Session) bool {
+func AgentRequested(sess ServerSession) bool {
 	return sess.Context().Value(contextKeyAgentRequest) == true
 }
 
@@ -52,8 +50,8 @@ func NewAgentListener() (net.Listener, error) {
 // ForwardAgentConnections takes connections from a listener to proxy into the
 // session on the OpenSSH channel for agent connections. It blocks and services
 // connections until the listener stop accepting.
-func ForwardAgentConnections(l net.Listener, s Session) {
-	sshConn := s.Context().Value(ContextKeyConn).(gossh.Conn)
+func ForwardAgentConnections(l net.Listener, s ServerSession) {
+	sshConn := s.Context().Value(ContextKeyConn).(Conn)
 	for {
 		conn, err := l.Accept()
 		if err != nil {
@@ -67,7 +65,7 @@ func ForwardAgentConnections(l net.Listener, s Session) {
 				return
 			}
 			defer func() { _ = channel.Close() }()
-			go gossh.DiscardRequests(reqs)
+			go DiscardRequests(reqs)
 			var wg sync.WaitGroup
 			wg.Add(2)
 			go func() {

@@ -7,8 +7,6 @@ import (
 	"net"
 	"strconv"
 	"sync"
-
-	gossh "github.com/malivvan/crypto/ssh/internal"
 )
 
 const (
@@ -26,15 +24,15 @@ type localForwardChannelData struct {
 
 // DirectTCPIPHandler can be enabled by adding it to the server's
 // ChannelHandlers under direct-tcpip.
-func DirectTCPIPHandler(srv *Server, _ *gossh.ServerConn, newChan gossh.NewChannel, ctx Context) {
+func DirectTCPIPHandler(srv *Server, _ *ServerConn, newChan NewChannel, ctx Context) {
 	d := localForwardChannelData{}
-	if err := gossh.Unmarshal(newChan.ExtraData(), &d); err != nil {
-		_ = newChan.Reject(gossh.ConnectionFailed, "error parsing forward data: "+err.Error())
+	if err := Unmarshal(newChan.ExtraData(), &d); err != nil {
+		_ = newChan.Reject(ConnectionFailed, "error parsing forward data: "+err.Error())
 		return
 	}
 
 	if srv.LocalPortForwardingCallback == nil || !srv.LocalPortForwardingCallback(ctx, d.DestAddr, d.DestPort) {
-		_ = newChan.Reject(gossh.Prohibited, "port forwarding is disabled")
+		_ = newChan.Reject(Prohibited, "port forwarding is disabled")
 		return
 	}
 
@@ -43,7 +41,7 @@ func DirectTCPIPHandler(srv *Server, _ *gossh.ServerConn, newChan gossh.NewChann
 	var dialer net.Dialer
 	dconn, err := dialer.DialContext(ctx, "tcp", dest)
 	if err != nil {
-		_ = newChan.Reject(gossh.ConnectionFailed, err.Error())
+		_ = newChan.Reject(ConnectionFailed, err.Error())
 		return
 	}
 
@@ -52,7 +50,7 @@ func DirectTCPIPHandler(srv *Server, _ *gossh.ServerConn, newChan gossh.NewChann
 		_ = dconn.Close()
 		return
 	}
-	go gossh.DiscardRequests(reqs)
+	go DiscardRequests(reqs)
 
 	go func() {
 		defer recoverAndLog("panic proxying forwarded connection", nil, nil)
@@ -99,17 +97,17 @@ type ForwardedTCPHandler struct {
 
 // HandleSSHRequest handles the tcpip-forward and cancel-tcpip-forward
 // global requests.
-func (h *ForwardedTCPHandler) HandleSSHRequest(ctx Context, srv *Server, req *gossh.Request) (bool, []byte) {
+func (h *ForwardedTCPHandler) HandleSSHRequest(ctx Context, srv *Server, req *Request) (bool, []byte) {
 	h.Lock()
 	if h.forwards == nil {
 		h.forwards = make(map[string]net.Listener)
 	}
 	h.Unlock()
-	conn := ctx.Value(ContextKeyConn).(*gossh.ServerConn)
+	conn := ctx.Value(ContextKeyConn).(*ServerConn)
 	switch req.Type {
 	case "tcpip-forward":
 		var reqPayload remoteForwardRequest
-		if err := gossh.Unmarshal(req.Payload, &reqPayload); err != nil {
+		if err := Unmarshal(req.Payload, &reqPayload); err != nil {
 			slog.Warn("ssh: failed to parse tcpip-forward request", "err", err)
 			return false, []byte{}
 		}
@@ -149,7 +147,7 @@ func (h *ForwardedTCPHandler) HandleSSHRequest(ctx Context, srv *Server, req *go
 				}
 				originAddr, orignPortStr, _ := net.SplitHostPort(c.RemoteAddr().String())
 				originPort, _ := strconv.Atoi(orignPortStr)
-				payload := gossh.Marshal(&remoteForwardChannelData{
+				payload := Marshal(&remoteForwardChannelData{
 					DestAddr:   reqPayload.BindAddr,
 					DestPort:   uint32(destPort), //nolint:gosec // port numbers fit in 16 bits
 					OriginAddr: originAddr,
@@ -165,7 +163,7 @@ func (h *ForwardedTCPHandler) HandleSSHRequest(ctx Context, srv *Server, req *go
 						_ = c.Close()
 						return
 					}
-					go gossh.DiscardRequests(reqs)
+					go DiscardRequests(reqs)
 					go func() {
 						defer recoverAndLog("panic proxying forwarded channel", nil, nil)
 						defer func() { _ = ch.Close() }()
@@ -184,11 +182,11 @@ func (h *ForwardedTCPHandler) HandleSSHRequest(ctx Context, srv *Server, req *go
 			delete(h.forwards, addr)
 			h.Unlock()
 		}()
-		return true, gossh.Marshal(&remoteForwardSuccess{uint32(destPort)}) //nolint:gosec // port numbers fit in 16 bits
+		return true, Marshal(&remoteForwardSuccess{uint32(destPort)}) //nolint:gosec // port numbers fit in 16 bits
 
 	case "cancel-tcpip-forward":
 		var reqPayload remoteForwardCancelRequest
-		if err := gossh.Unmarshal(req.Payload, &reqPayload); err != nil {
+		if err := Unmarshal(req.Payload, &reqPayload); err != nil {
 			slog.Warn("ssh: failed to parse cancel-tcpip-forward request", "err", err)
 			return false, []byte{}
 		}

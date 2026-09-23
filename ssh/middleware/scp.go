@@ -233,17 +233,17 @@ type ScpCopyToClientHandler interface {
 	//
 	// Note: if your other functions expect a relative path, make sure that
 	// your Glob implementation returns relative paths as well.
-	Glob(ssh.Session, string) ([]string, error)
+	Glob(ssh.ServerSession, string) ([]string, error)
 
 	// WalkDir must be implemented if you want to allow recursive copies.
-	WalkDir(ssh.Session, string, fs.WalkDirFunc) error
+	WalkDir(ssh.ServerSession, string, fs.WalkDirFunc) error
 
 	// NewDirEntry should provide a *ScpDirEntry for the given path.
-	NewDirEntry(ssh.Session, string) (*ScpDirEntry, error)
+	NewDirEntry(ssh.ServerSession, string) (*ScpDirEntry, error)
 
 	// NewFileEntry should provide a *ScpFileEntry for the given path.
 	// Users may also provide a closing function.
-	NewFileEntry(ssh.Session, string) (*ScpFileEntry, func() error, error)
+	NewFileEntry(ssh.ServerSession, string) (*ScpFileEntry, func() error, error)
 }
 
 // ScpCopyFromClientHandler is implemented to handle files being copied from
@@ -251,10 +251,10 @@ type ScpCopyToClientHandler interface {
 type ScpCopyFromClientHandler interface {
 	// Mkdir should create the given dir.
 	// Note that this usually shouldn't use os.MkdirAll and the like.
-	Mkdir(ssh.Session, *ScpDirEntry) error
+	Mkdir(ssh.ServerSession, *ScpDirEntry) error
 
 	// Write should write the given file.
-	Write(ssh.Session, *ScpFileEntry) (int64, error)
+	Write(ssh.ServerSession, *ScpFileEntry) (int64, error)
 }
 
 // ScpHandler is implemented to handle both SCP directions.
@@ -268,7 +268,7 @@ type ScpHandler interface {
 // passes through to the next handler for any other command.
 func SCP(rh ScpCopyToClientHandler, wh ScpCopyFromClientHandler) ssh.Middleware {
 	return func(sh ssh.Handler) ssh.Handler {
-		return func(s ssh.Session) {
+		return func(s ssh.ServerSession) {
 			info := ScpGetInfo(s.Command())
 			if !info.Ok {
 				sh(s)

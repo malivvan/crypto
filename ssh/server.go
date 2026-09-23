@@ -20,19 +20,27 @@ import (
 var ErrServerClosed = errors.New("ssh: Server closed")
 
 // SubsystemHandler is a handler for a given SSH subsystem.
-type SubsystemHandler func(s Session)
+type SubsystemHandler func(s ServerSession)
 
 // DefaultSubsystemHandlers is the default set of subsystem handlers.
 var DefaultSubsystemHandlers = map[string]SubsystemHandler{}
 
+// ServerConn is a server-side SSH connection. It is passed to channel and
+// request handlers; the zero value is not useful.
+type ServerConn = gossh.ServerConn
+
+// ServerConfig holds the server-specific connection configuration used during
+// the handshake. See [ServerConfigCallback].
+type ServerConfig = gossh.ServerConfig
+
 // RequestHandler is a callback for custom global SSH requests.
-type RequestHandler func(ctx Context, srv *Server, req *gossh.Request) (ok bool, payload []byte)
+type RequestHandler func(ctx Context, srv *Server, req *Request) (ok bool, payload []byte)
 
 // DefaultRequestHandlers is the default set of request handlers.
 var DefaultRequestHandlers = map[string]RequestHandler{}
 
 // ChannelHandler is a callback for custom channel types.
-type ChannelHandler func(srv *Server, conn *gossh.ServerConn, newChan gossh.NewChannel, ctx Context)
+type ChannelHandler func(srv *Server, conn *ServerConn, newChan NewChannel, ctx Context)
 
 // DefaultChannelHandlers is the default set of channel handlers.
 var DefaultChannelHandlers = map[string]ChannelHandler{
@@ -99,7 +107,7 @@ type Server struct {
 	mu         sync.RWMutex
 	started    atomic.Bool
 	listeners  map[net.Listener]struct{}
-	conns      map[*gossh.ServerConn]struct{}
+	conns      map[*ServerConn]struct{}
 	connWg     sync.WaitGroup
 	doneChan   chan struct{}
 }
@@ -142,13 +150,13 @@ func (srv *Server) ensureHandlers() {
 	}
 }
 
-func (srv *Server) config(ctx Context) *gossh.ServerConfig {
+func (srv *Server) config(ctx Context) *ServerConfig {
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
 
-	var config *gossh.ServerConfig
+	var config *ServerConfig
 	if srv.ServerConfigCallback == nil {
-		config = &gossh.ServerConfig{}
+		config = &ServerConfig{}
 	} else {
 		config = srv.ServerConfigCallback(ctx)
 	}
@@ -166,42 +174,42 @@ func (srv *Server) config(ctx Context) *gossh.ServerConfig {
 		config.ServerVersion = "SSH-2.0-" + srv.Version
 	}
 	if srv.Banner != "" {
-		config.BannerCallback = func(_ gossh.ConnMetadata) string {
+		config.BannerCallback = func(_ ConnMetadata) string {
 			return srv.Banner
 		}
 	}
 	if srv.BannerHandler != nil {
-		config.BannerCallback = func(conn gossh.ConnMetadata) string {
+		config.BannerCallback = func(conn ConnMetadata) string {
 			applyConnMetadata(ctx, conn)
 			return srv.BannerHandler(ctx)
 		}
 	}
 	if srv.PasswordHandler != nil {
-		config.PasswordCallback = func(conn gossh.ConnMetadata, password []byte) (*gossh.Permissions, error) {
+		config.PasswordCallback = func(conn ConnMetadata, password []byte) (*Permissions, error) {
 			resetPermissions(ctx)
 			applyConnMetadata(ctx, conn)
 			err := ensureNoPKInPermissions(ctx)
 			if err != nil {
-				return ctx.Permissions().Permissions, err
+				return ctx.Permissions(), err
 			}
 			ok := srv.PasswordHandler(ctx, string(password))
 			if !ok {
-				return ctx.Permissions().Permissions, ErrPermissionDenied
+				return ctx.Permissions(), ErrPermissionDenied
 			}
-			return ctx.Permissions().Permissions, nil
+			return ctx.Permissions(), nil
 		}
 	}
 	if srv.PublicKeyHandler != nil {
-		config.PublicKeyCallback = func(conn gossh.ConnMetadata, key gossh.PublicKey) (*gossh.Permissions, error) {
+		config.PublicKeyCallback = func(conn ConnMetadata, key PublicKey) (*Permissions, error) {
 			resetPermissions(ctx)
 			applyConnMetadata(ctx, conn)
 			err := ensureNoPKInPermissions(ctx)
 			if err != nil {
-				return ctx.Permissions().Permissions, err
+				return ctx.Permissions(), err
 			}
 			ok := srv.PublicKeyHandler(ctx, key)
 			if !ok {
-				return ctx.Permissions().Permissions, ErrPermissionDenied
+				return ctx.Permissions(), ErrPermissionDenied
 			}
 
 			pkStr := base64.StdEncoding.EncodeToString(key.Marshal())
@@ -210,22 +218,22 @@ func (srv *Server) config(ctx Context) *gossh.ServerConfig {
 			}
 			ctx.Permissions().Extensions[permissionsPublicKeyExt] = pkStr
 
-			return ctx.Permissions().Permissions, nil
+			return ctx.Permissions(), nil
 		}
 	}
 	if srv.KeyboardInteractiveHandler != nil {
-		config.KeyboardInteractiveCallback = func(conn gossh.ConnMetadata, challenger gossh.KeyboardInteractiveChallenge) (*gossh.Permissions, error) {
+		config.KeyboardInteractiveCallback = func(conn ConnMetadata, challenger KeyboardInteractiveChallenge) (*Permissions, error) {
 			resetPermissions(ctx)
 			applyConnMetadata(ctx, conn)
 			ok := srv.KeyboardInteractiveHandler(ctx, challenger)
 			err := ensureNoPKInPermissions(ctx)
 			if err != nil {
-				return ctx.Permissions().Permissions, err
+				return ctx.Permissions(), err
 			}
 			if !ok {
-				return ctx.Permissions().Permissions, ErrPermissionDenied
+				return ctx.Permissions(), ErrPermissionDenied
 			}
-			return ctx.Permissions().Permissions, nil
+			return ctx.Permissions(), nil
 		}
 	}
 	return config
@@ -441,16 +449,21 @@ func (srv *Server) handleConn(newConn net.Conn) {
 	}
 
 	// Additionally, now that the connection was authed, we can take the
-	// permissions off of the gossh.Conn and re-attach them to the Permissions
-	// object stored in the Context.
-	ctx.Permissions().Permissions = sshConn.Permissions
+	// permissions off of the Conn and re-attach them to the Permissions object
+	// stored in the Context. Connections that authenticated without a method
+	// (NoClientAuth) have no permissions attached.
+	if perms := sshConn.Permissions; perms != nil {
+		*ctx.Permissions() = *perms
+	} else {
+		*ctx.Permissions() = Permissions{}
+	}
 
 	srv.trackConn(sshConn, true)
 	defer srv.trackConn(sshConn, false)
 
 	ctx.SetValue(ContextKeyConn, sshConn)
 	applyConnMetadata(ctx, sshConn)
-	// go gossh.DiscardRequests(reqs)
+	// go DiscardRequests(reqs)
 	go func() {
 		defer recoverAndLog("panic handling requests", conn, nil)
 		srv.handleRequests(ctx, reqs)
@@ -461,17 +474,17 @@ func (srv *Server) handleConn(newConn net.Conn) {
 			handler = srv.ChannelHandlers["default"]
 		}
 		if handler == nil {
-			_ = ch.Reject(gossh.UnknownChannelType, "unsupported channel type")
+			_ = ch.Reject(UnknownChannelType, "unsupported channel type")
 			continue
 		}
-		go func(ch gossh.NewChannel) {
+		go func(ch NewChannel) {
 			defer recoverAndLog("panic handling channel", conn, nil)
 			handler(srv, sshConn, ch, ctx)
 		}(ch)
 	}
 }
 
-func (srv *Server) handleRequests(ctx Context, in <-chan *gossh.Request) {
+func (srv *Server) handleRequests(ctx Context, in <-chan *Request) {
 	for req := range in {
 		handler := srv.RequestHandlers[req.Type]
 		if handler == nil {
@@ -603,12 +616,12 @@ func (srv *Server) trackListener(ln net.Listener, add bool) {
 	}
 }
 
-func (srv *Server) trackConn(c *gossh.ServerConn, add bool) {
+func (srv *Server) trackConn(c *ServerConn, add bool) {
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
 
 	if srv.conns == nil {
-		srv.conns = make(map[*gossh.ServerConn]struct{})
+		srv.conns = make(map[*ServerConn]struct{})
 	}
 	if add {
 		srv.conns[c] = struct{}{}
@@ -621,7 +634,7 @@ func (srv *Server) trackConn(c *gossh.ServerConn, add bool) {
 
 // extractPublicKeyFromPermissions re-parses the public key from the
 // permissions extensions and stores it in the context.
-func extractPublicKeyFromPermissions(ctx Context, sshConn *gossh.ServerConn) error {
+func extractPublicKeyFromPermissions(ctx Context, sshConn *ServerConn) error {
 	if sshConn.Permissions == nil {
 		return nil
 	}
@@ -633,7 +646,7 @@ func extractPublicKeyFromPermissions(ctx Context, sshConn *gossh.ServerConn) err
 	if err != nil {
 		return err
 	}
-	key, err := gossh.ParsePublicKey(decodedData)
+	key, err := ParsePublicKey(decodedData)
 	if err != nil {
 		return err
 	}

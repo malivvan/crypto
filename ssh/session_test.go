@@ -76,7 +76,7 @@ func TestStdout(t *testing.T) {
 	t.Parallel()
 	testBytes := []byte("Hello world\n")
 	session, _, cleanup := newTestSession(t, &Server{
-		Handler: func(s Session) {
+		Handler: func(s ServerSession) {
 			s.Write(testBytes)
 		},
 	}, nil)
@@ -95,7 +95,7 @@ func TestStderr(t *testing.T) {
 	t.Parallel()
 	testBytes := []byte("Hello world\n")
 	session, _, cleanup := newTestSession(t, &Server{
-		Handler: func(s Session) {
+		Handler: func(s ServerSession) {
 			s.Stderr().Write(testBytes)
 		},
 	}, nil)
@@ -115,7 +115,7 @@ func TestPtyStderr(t *testing.T) {
 	testBytes := []byte("Hello world\n\r\n")
 	expectBytes := []byte("Hello world\r\n\r\n")
 	session, _, cleanup := newTestSession(t, &Server{
-		Handler: func(s Session) {
+		Handler: func(s ServerSession) {
 			s.Stderr().Write(testBytes)
 		},
 	}, nil)
@@ -138,7 +138,7 @@ func TestStdin(t *testing.T) {
 	t.Parallel()
 	testBytes := []byte("Hello world\n")
 	session, _, cleanup := newTestSession(t, &Server{
-		Handler: func(s Session) {
+		Handler: func(s ServerSession) {
 			io.Copy(s, s) // stdin back into stdout
 		},
 	}, nil)
@@ -158,7 +158,7 @@ func TestUser(t *testing.T) {
 	t.Parallel()
 	testUser := []byte("progrium")
 	session, _, cleanup := newTestSession(t, &Server{
-		Handler: func(s Session) {
+		Handler: func(s ServerSession) {
 			io.WriteString(s, s.User())
 		},
 	}, &gossh.ClientConfig{
@@ -178,7 +178,7 @@ func TestUser(t *testing.T) {
 func TestDefaultExitStatusZero(t *testing.T) {
 	t.Parallel()
 	session, _, cleanup := newTestSession(t, &Server{
-		Handler: func(s Session) {
+		Handler: func(s ServerSession) {
 			// noop
 		},
 	}, nil)
@@ -192,7 +192,7 @@ func TestDefaultExitStatusZero(t *testing.T) {
 func TestExplicitExitStatusZero(t *testing.T) {
 	t.Parallel()
 	session, _, cleanup := newTestSession(t, &Server{
-		Handler: func(s Session) {
+		Handler: func(s ServerSession) {
 			s.Exit(0)
 		},
 	}, nil)
@@ -206,7 +206,7 @@ func TestExplicitExitStatusZero(t *testing.T) {
 func TestExitStatusNonZero(t *testing.T) {
 	t.Parallel()
 	session, _, cleanup := newTestSession(t, &Server{
-		Handler: func(s Session) {
+		Handler: func(s ServerSession) {
 			s.Exit(1)
 		},
 	}, nil)
@@ -228,7 +228,7 @@ func TestPty(t *testing.T) {
 	winHeight := 80
 	done := make(chan bool)
 	session, _, cleanup := newTestSession(t, &Server{
-		Handler: func(s Session) {
+		Handler: func(s ServerSession) {
 			defer func() { close(done) }()
 			ptyReq, _, isPty := s.Pty()
 			if !isPty {
@@ -261,7 +261,7 @@ func TestPtyWriter(t *testing.T) {
 	winWidth := 40
 	winHeight := 80
 	session, _, cleanup := newTestSession(t, &Server{
-		Handler: func(s Session) {
+		Handler: func(s ServerSession) {
 			_, _ = fmt.Fprintln(s, "foo\nbar")
 			_, _ = fmt.Fprintln(s.Stderr(), "many\nerrors")
 			_ = s.Exit(0)
@@ -299,7 +299,7 @@ func TestPtyResize(t *testing.T) {
 	winches := make(chan Window)
 	done := make(chan bool)
 	session, _, cleanup := newTestSession(t, &Server{
-		Handler: func(s Session) {
+		Handler: func(s ServerSession) {
 			defer func() { close(done) }()
 			ptyReq, winCh, isPty := s.Pty()
 			if !isPty {
@@ -355,7 +355,7 @@ func TestSignals(t *testing.T) {
 	doneChan := make(chan interface{})
 
 	session, _, cleanup := newTestSession(t, &Server{
-		Handler: func(s Session) {
+		Handler: func(s ServerSession) {
 			// We need to use a buffered channel here, otherwise it's possible for the
 			// second call to Signal to get discarded.
 			signals := make(chan Signal, 2)
@@ -417,7 +417,7 @@ func TestBreakWithChanRegistered(t *testing.T) {
 	readyToReceiveBreak := make(chan bool)
 
 	session, _, cleanup := newTestSession(t, &Server{
-		Handler: func(s Session) {
+		Handler: func(s ServerSession) {
 			s.Break(breakChan) // register a break channel with the session
 			readyToReceiveBreak <- true
 
@@ -469,7 +469,7 @@ func TestBreakWithoutChanRegistered(t *testing.T) {
 	waitUntilAfterBreakSent := make(chan bool)
 
 	session, _, cleanup := newTestSession(t, &Server{
-		Handler: func(s Session) {
+		Handler: func(s ServerSession) {
 			<-waitUntilAfterBreakSent
 		},
 	}, nil)

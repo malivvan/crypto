@@ -34,7 +34,7 @@ func TestContextAddrs(t *testing.T) {
 func TestServerHandle(t *testing.T) {
 	t.Parallel()
 	srv := &Server{}
-	srv.Handle(func(s Session) {})
+	srv.Handle(func(s ServerSession) {})
 	if srv.Handler == nil {
 		t.Fatal("Handler not set")
 	}
@@ -46,7 +46,7 @@ func TestListenAndServe(t *testing.T) {
 	l := newLocalListener()
 	srv.Addr = l.Addr().String()
 	l.Close()
-	srv.Handler = func(s Session) {}
+	srv.Handler = func(s ServerSession) {}
 
 	done := make(chan error, 1)
 	go func() {

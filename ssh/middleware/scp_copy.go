@@ -29,7 +29,7 @@ func (e scpParseError) Error() string {
 	return fmt.Sprintf("failed to parse: %q", e.subject)
 }
 
-func scpCopyToClient(s ssh.Session, info ScpInfo, handler ScpCopyToClientHandler) error {
+func scpCopyToClient(s ssh.ServerSession, info ScpInfo, handler ScpCopyToClientHandler) error {
 	matches, err := handler.Glob(s, info.Path)
 	if err != nil {
 		return err
@@ -88,7 +88,7 @@ func scpCopyToClient(s ssh.Session, info ScpInfo, handler ScpCopyToClientHandler
 	return rootEntry.Write(s)
 }
 
-func scpCopyFromClient(s ssh.Session, info ScpInfo, handler ScpCopyFromClientHandler) error {
+func scpCopyFromClient(s ssh.ServerSession, info ScpInfo, handler ScpCopyFromClientHandler) error {
 	// accepts the request
 	_, _ = s.Write(scpNull)
 
@@ -183,7 +183,7 @@ func scpCopyFromClient(s ssh.Session, info ScpInfo, handler ScpCopyFromClientHan
 	return nil
 }
 
-func scpHandleNewFile(s ssh.Session, r *bufio.Reader, handler ScpCopyFromClientHandler, path, line string, match []string, mtime, atime int64) error {
+func scpHandleNewFile(s ssh.ServerSession, r *bufio.Reader, handler ScpCopyFromClientHandler, path, line string, match []string, mtime, atime int64) error {
 	mode, err := strconv.ParseUint(match[1], 8, 32)
 	if err != nil {
 		return scpParseError{line}

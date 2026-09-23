@@ -14,9 +14,9 @@ type serverConn struct {
 	maxDeadline   time.Time
 	closeCanceler context.CancelFunc
 
-	// handshakeDeadline is cleared once the handshake completes, which happens
-	// after gossh.NewServerConn has started goroutines that read it via
-	// updateDeadline. Access it only through the accessors below.
+	// handshakeDeadline is cleared once the handshake completes. The server
+	// connection starts goroutines that read it via updateDeadline, so access
+	// it only through the accessors below.
 	mu                sync.Mutex
 	handshakeDeadline time.Time
 }

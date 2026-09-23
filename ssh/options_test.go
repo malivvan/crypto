@@ -23,7 +23,7 @@ func TestPasswordAuth(t *testing.T) {
 	testUser := "testuser"
 	testPass := "testpass"
 	session, _, cleanup := newTestSessionWithOptions(t, &Server{
-		Handler: func(s Session) {
+		Handler: func(s ServerSession) {
 			// noop
 		},
 	}, &gossh.ClientConfig{
@@ -50,7 +50,7 @@ func TestPasswordAuth(t *testing.T) {
 func TestPasswordAuthBadPass(t *testing.T) {
 	t.Parallel()
 	l := newLocalListener()
-	srv := &Server{Handler: func(s Session) {}}
+	srv := &Server{Handler: func(s ServerSession) {}}
 	srv.SetOption(PasswordAuth(func(ctx Context, password string) bool {
 		return false
 	}))
@@ -84,7 +84,7 @@ func TestConnWrapping(t *testing.T) {
 	t.Parallel()
 	var wrapped *wrappedConn
 	session, _, cleanup := newTestSessionWithOptions(t, &Server{
-		Handler: func(s Session) {
+		Handler: func(s ServerSession) {
 			// nothing
 		},
 	}, &gossh.ClientConfig{

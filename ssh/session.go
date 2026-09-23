@@ -10,11 +10,9 @@ import (
 	"strings"
 	"sync"
 	"unicode"
-
-	gossh "github.com/malivvan/crypto/ssh/internal"
 )
 
-// Session provides access to information about an SSH session and methods
+// ServerSession provides access to information about an SSH session and methods
 // to read and write to the SSH channel with an embedded Channel interface from
 // crypto/ssh.
 //
@@ -22,8 +20,8 @@ import (
 // the user is performing an exec with those command arguments.
 //
 // TODO: Signals.
-type Session interface {
-	gossh.Channel
+type ServerSession interface {
+	Channel
 
 	// User returns the username used when establishing the SSH connection.
 	User() string
@@ -95,7 +93,7 @@ type Session interface {
 const maxSigBufSize = 128
 
 // DefaultSessionHandler is the default handler for the "session" channel type.
-func DefaultSessionHandler(srv *Server, conn *gossh.ServerConn, newChan gossh.NewChannel, ctx Context) {
+func DefaultSessionHandler(srv *Server, conn *ServerConn, newChan NewChannel, ctx Context) {
 	ch, reqs, err := newChan.Accept()
 	if err != nil {
 		slog.Warn("ssh: failed to accept session channel", "err", err)
@@ -117,8 +115,8 @@ func DefaultSessionHandler(srv *Server, conn *gossh.ServerConn, newChan gossh.Ne
 
 type session struct {
 	sync.Mutex
-	gossh.Channel
-	conn              *gossh.ServerConn
+	Channel
+	conn              *ServerConn
 	handler           Handler
 	subsystemHandlers map[string]SubsystemHandler
 	handled           bool
@@ -174,12 +172,12 @@ func (sess *session) Exit(code int) error {
 	sess.Lock()
 	defer sess.Unlock()
 	if sess.exited {
-		return errors.New("Session.Exit called multiple times")
+		return errors.New("ServerSession.Exit called multiple times")
 	}
 	sess.exited = true
 
 	status := struct{ Status uint32 }{uint32(code)} //nolint:gosec // SSH exit status is an unsigned 32-bit field
-	_, err := sess.SendRequest("exit-status", false, gossh.Marshal(&status))
+	_, err := sess.SendRequest("exit-status", false, Marshal(&status))
 	if err != nil {
 		return err
 	}
@@ -245,7 +243,7 @@ func (sess *session) Break(c chan<- bool) {
 	sess.breakCh = c
 }
 
-func (sess *session) handleRequests(reqs <-chan *gossh.Request) {
+func (sess *session) handleRequests(reqs <-chan *Request) {
 	for req := range reqs {
 		switch req.Type {
 		case "shell", "exec":
@@ -255,7 +253,7 @@ func (sess *session) handleRequests(reqs <-chan *gossh.Request) {
 			}
 
 			payload := struct{ Value string }{}
-			_ = gossh.Unmarshal(req.Payload, &payload)
+			_ = Unmarshal(req.Payload, &payload)
 			sess.rawCmd = payload.Value
 
 			// If there's a session policy callback, we need to confirm before
@@ -303,7 +301,7 @@ func (sess *session) handleRequests(reqs <-chan *gossh.Request) {
 			}
 
 			payload := struct{ Value string }{}
-			_ = gossh.Unmarshal(req.Payload, &payload)
+			_ = Unmarshal(req.Payload, &payload)
 			sess.subsystem = payload.Value
 
 			// If there's a session policy callback, we need to confirm before
@@ -339,12 +337,12 @@ func (sess *session) handleRequests(reqs <-chan *gossh.Request) {
 				continue
 			}
 			var kv struct{ Key, Value string }
-			_ = gossh.Unmarshal(req.Payload, &kv)
+			_ = Unmarshal(req.Payload, &kv)
 			sess.env = append(sess.env, fmt.Sprintf("%s=%s", kv.Key, kv.Value))
 			_ = req.Reply(true, nil)
 		case "signal":
 			var payload struct{ Signal string }
-			_ = gossh.Unmarshal(req.Payload, &payload)
+			_ = Unmarshal(req.Payload, &payload)
 			sess.Lock()
 			if sess.sigCh != nil {
 				sess.sigCh <- Signal(payload.Signal)
@@ -435,7 +433,7 @@ func (sess *session) handleRequests(reqs <-chan *gossh.Request) {
 	}
 }
 
-func (sess *session) ptyAllocate(term string, win Window, modes gossh.TerminalModes) (func() error, error) {
+func (sess *session) ptyAllocate(term string, win Window, modes TerminalModes) (func() error, error) {
 	p, err := newPty(sess.ctx, term, win, modes)
 	if err != nil {
 		return nil, err

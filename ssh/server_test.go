@@ -34,7 +34,7 @@ func TestServerShutdown(t *testing.T) {
 	l := newLocalListener()
 	testBytes := []byte("Hello world\n")
 	s := &Server{
-		Handler: func(s Session) {
+		Handler: func(s ServerSession) {
 			s.Write(testBytes)
 			time.Sleep(50 * time.Millisecond)
 		},
@@ -99,7 +99,7 @@ func TestServerShutdown(t *testing.T) {
 func TestServerClose(t *testing.T) {
 	l := newLocalListener()
 	s := &Server{
-		Handler: func(s Session) {
+		Handler: func(s ServerSession) {
 			time.Sleep(5 * time.Second)
 		},
 	}

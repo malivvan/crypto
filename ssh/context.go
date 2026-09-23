@@ -5,8 +5,6 @@ import (
 	"encoding/hex"
 	"net"
 	"sync"
-
-	gossh "github.com/malivvan/crypto/ssh/internal"
 )
 
 // contextKey is a value for use with context.WithValue. It's used as
@@ -49,7 +47,7 @@ var (
 	ContextKeyServer = &contextKey{"ssh-server"}
 
 	// ContextKeyConn is a context key for use with Contexts in this package.
-	// The associated value will be of type gossh.ServerConn.
+	// The associated value will be of type *ServerConn.
 	ContextKeyConn = &contextKey{"ssh-conn"}
 
 	// ContextKeyPublicKey is a context key for use with Contexts in this package.
@@ -57,14 +55,14 @@ var (
 	ContextKeyPublicKey = &contextKey{"public-key"}
 
 	// ContextKeySession is a context key for use with Contexts in this package.
-	// The associated value will be of type Session.
+	// The associated value will be of type ServerSession.
 	ContextKeySession = &contextKey{"session"}
 )
 
 // Context is a package specific context interface. It exposes connection
 // metadata and allows new values to be easily written to it. It's used in
 // authentication handlers and callbacks, and its underlying context.Context is
-// exposed on Session in the session Handler. A connection-scoped lock is also
+// exposed on ServerSession in the session Handler. A connection-scoped lock is also
 // embedded in the context to make it easier to limit operations per-connection.
 type Context interface {
 	context.Context
@@ -115,18 +113,18 @@ func newContext(srv *Server) (*sshContext, context.CancelFunc) {
 		values:  make(map[interface{}]interface{}),
 	}
 	ctx.SetValue(ContextKeyServer, srv)
-	perms := &Permissions{&gossh.Permissions{}}
+	perms := &Permissions{}
 	ctx.SetValue(ContextKeyPermissions, perms)
 	return ctx, cancel
 }
 
 func resetPermissions(ctx Context) {
-	ctx.Permissions().Permissions = &gossh.Permissions{}
+	*ctx.Permissions() = Permissions{}
 }
 
 // this is separate from newContext because we will get ConnMetadata
 // at different points so it needs to be applied separately.
-func applyConnMetadata(ctx Context, conn gossh.ConnMetadata) {
+func applyConnMetadata(ctx Context, conn ConnMetadata) {
 	// The username is per-authentication-attempt and can change between
 	// attempts on the same connection, so it must be refreshed every time.
 	// The remaining values are connection-scoped and set only once.

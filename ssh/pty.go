@@ -82,7 +82,7 @@ func WithJobControl() PtyStartOption {
 	}
 }
 
-// Start starts a *exec.Cmd attached to the Session. If a PTY is allocated,
+// Start starts a *exec.Cmd attached to the ServerSession. If a PTY is allocated,
 // it will use that for I/O.
 // On Windows the process runs on a ConPTY, where it is started and waited for
 // through the command API of the github.com/malivvan/pty package instead of

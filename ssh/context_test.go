@@ -11,7 +11,7 @@ func TestSetPermissions(t *testing.T) {
 		"foo": "bar",
 	}
 	session, _, cleanup := newTestSessionWithOptions(t, &Server{
-		Handler: func(s Session) {
+		Handler: func(s ServerSession) {
 			if _, ok := s.Permissions().Extensions["foo"]; !ok {
 				t.Fatalf("got %#v; want %#v", s.Permissions().Extensions, permsExt)
 			}
@@ -33,7 +33,7 @@ func TestSetValue(t *testing.T) {
 	}
 	key := "testValue"
 	session, _, cleanup := newTestSessionWithOptions(t, &Server{
-		Handler: func(s Session) {
+		Handler: func(s ServerSession) {
 			v := s.Context().Value(key).(map[string]string)
 			if v["foo"] != value["foo"] {
 				t.Fatalf("got %#v; want %#v", v, value)
@@ -53,7 +53,7 @@ func TestRaceRWIssue160(t *testing.T) {
 	value := "foo"
 	key := "bar"
 	session, _, cleanup := newTestSessionWithOptions(t, &Server{
-		Handler: func(s Session) {
+		Handler: func(s ServerSession) {
 			t.Run("test done", func(t *testing.T) {
 				t.Parallel()
 				go func() {

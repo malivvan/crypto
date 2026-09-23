@@ -69,7 +69,7 @@ func TestServeSurvivesPanickingConn(t *testing.T) {
 	var count atomic.Int64
 
 	srv := &Server{
-		Handler: func(s Session) {},
+		Handler: func(s ServerSession) {},
 		ConnCallback: func(_ Context, conn net.Conn) net.Conn {
 			n := count.Add(1)
 			handled <- int(n)
@@ -178,7 +178,7 @@ func TestRecoverAndLogIgnoresNormalReturn(t *testing.T) {
 func TestChannelHandlerPanicDoesNotKillServer(t *testing.T) {
 	panicked := make(chan struct{})
 	srv := &Server{
-		Handler: func(Session) {},
+		Handler: func(ServerSession) {},
 		ChannelHandlers: map[string]ChannelHandler{
 			"session": func(_ *Server, _ *gossh.ServerConn, _ gossh.NewChannel, _ Context) {
 				close(panicked)
@@ -238,7 +238,7 @@ func TestChannelHandlerPanicDoesNotKillServer(t *testing.T) {
 // goroutine where no caller can recover for it.
 func TestSessionHandlerPanicDoesNotKillServer(t *testing.T) {
 	srv := &Server{
-		Handler: func(s Session) {
+		Handler: func(s ServerSession) {
 			panic("panic in session handler")
 		},
 	}
@@ -328,7 +328,7 @@ func TestAgentProxyPanicReleasesWaitGroup(t *testing.T) {
 // TestRecoverAndLogContainsPanickingCleanup checks that a panic raised by the
 // cleanup function does not escape. Cleanup runs while already unwinding a
 // panic, so a second panic there would defeat the containment and kill the
-// process. Cleanups call things like Session.Exit, which touch a connection
+// process. Cleanups call things like ServerSession.Exit, which touch a connection
 // that may already be torn down, so this is not hypothetical.
 func TestRecoverAndLogContainsPanickingCleanup(t *testing.T) {
 	done := make(chan struct{})
@@ -377,7 +377,7 @@ func TestHandleConnPanicStillRunsCallbacks(t *testing.T) {
 		ConnCallback: func(_ Context, conn net.Conn) net.Conn {
 			return conn
 		},
-		Handler: func(Session) {},
+		Handler: func(ServerSession) {},
 	}
 
 	// Panic after the defers are registered by driving a real handshake that

@@ -11,7 +11,7 @@ import (
 func TestSessionAccessors(t *testing.T) {
 	t.Parallel()
 	session, _, cleanup := newTestSessionWithOptions(t, &Server{
-		Handler: func(s Session) {
+		Handler: func(s ServerSession) {
 			if s.PublicKey() != nil {
 				t.Errorf("PublicKey() should be nil without pubkey auth, got %v", s.PublicKey())
 			}
@@ -46,7 +46,7 @@ func TestSessionAccessors(t *testing.T) {
 func TestSessionCommand(t *testing.T) {
 	t.Parallel()
 	session, _, cleanup := newTestSessionWithOptions(t, &Server{
-		Handler: func(s Session) {
+		Handler: func(s ServerSession) {
 			if s.RawCommand() != "repo-upload-pack 'test.repo'" {
 				t.Errorf("RawCommand() = %q", s.RawCommand())
 			}
@@ -66,7 +66,7 @@ func TestSessionSubsystem(t *testing.T) {
 	t.Parallel()
 	srv := &Server{
 		SubsystemHandlers: map[string]SubsystemHandler{
-			"sftp": func(s Session) {
+			"sftp": func(s ServerSession) {
 				if s.Subsystem() != "sftp" {
 					t.Errorf("Subsystem() = %q, want %q", s.Subsystem(), "sftp")
 				}
@@ -88,7 +88,7 @@ func TestSessionSubsystem(t *testing.T) {
 func TestSessionEnviron(t *testing.T) {
 	t.Parallel()
 	session, _, cleanup := newTestSessionWithOptions(t, &Server{
-		Handler: func(s Session) {
+		Handler: func(s ServerSession) {
 			env := s.Environ()
 			found := false
 			for _, e := range env {
@@ -122,7 +122,7 @@ func TestSessionPublicKeyAccessor(t *testing.T) {
 	}
 
 	session, _, cleanup := newTestSessionWithOptions(t, &Server{
-		Handler: func(s Session) {
+		Handler: func(s ServerSession) {
 			if s.PublicKey() == nil {
 				t.Error("PublicKey() should not be nil after pubkey auth")
 			}

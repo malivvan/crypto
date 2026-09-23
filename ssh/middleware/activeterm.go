@@ -11,7 +11,7 @@ import (
 // function correctly.
 func ActiveTerm() ssh.Middleware {
 	return func(next ssh.Handler) ssh.Handler {
-		return func(sess ssh.Session) {
+		return func(sess ssh.ServerSession) {
 			_, _, active := sess.Pty()
 			if active {
 				next(sess)
